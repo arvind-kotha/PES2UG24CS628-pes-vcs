@@ -121,6 +121,47 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
         return 0;
     }
 
+    char final_path[1024];
+    object_path(id_out, final_path, sizeof(final_path));
+
+    char shard_dir[1024];
+    snprintf(shard_dir, sizeof(shard_dir), "%s", final_path);
+    char *slash = strrchr(shard_dir, '/');
+    if (!slash) {
+        free(object_data);
+        return -1;
+    }
+    *slash = '\0';
+
+    if (mkdir(shard_dir, 0755) != 0 && errno != EEXIST) {
+        free(object_data);
+        return -1;
+    }
+
+    char tmp_path[1024];
+    int tmp_written = snprintf(tmp_path, sizeof(tmp_path), "%s/.tmp-XXXXXX", shard_dir);
+    if (tmp_written < 0 || tmp_written >= (int)sizeof(tmp_path)) {
+        free(object_data);
+        return -1;
+    }
+    int fd = mkstemp(tmp_path);
+    if (fd < 0) {
+        free(object_data);
+        return -1;
+    }
+
+    size_t written_total = 0;
+    while (written_total < object_len) {
+        ssize_t n = write(fd, object_data + written_total, object_len - written_total);
+        if (n <= 0) {
+            close(fd);
+            unlink(tmp_path);
+            free(object_data);
+            return -1;
+        }
+        written_total += (size_t)n;
+    }
+
     free(object_data);
     return -1;
 }
