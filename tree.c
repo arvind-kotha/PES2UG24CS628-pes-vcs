@@ -5,6 +5,9 @@
 //
 // Binary tree format (per entry, concatenated with no separators):
 //   "<mode-as-ascii-octal> <name>\0<32-byte-binary-hash>"
+//
+// Example single entry (conceptual):
+//   "100644 hello.txt\0" followed by 32 raw bytes of SHA-256
 
 #include "tree.h"
 #include "index.h"
@@ -17,10 +20,12 @@
 // Forward declaration from object.c
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 
+// Mode constants
 #define MODE_FILE      0100644
 #define MODE_EXEC      0100755
 #define MODE_DIR       0040000
 
+// Determine the object mode for a filesystem path.
 uint32_t get_file_mode(const char *path) {
     struct stat st;
     if (lstat(path, &st) != 0) return 0;
@@ -30,6 +35,8 @@ uint32_t get_file_mode(const char *path) {
     return MODE_FILE;
 }
 
+// Parse binary tree data into a Tree struct safely.
+// Returns 0 on success, -1 on parse error.
 int tree_parse(const void *data, size_t len, Tree *tree_out) {
     tree_out->count = 0;
     const uint8_t *ptr = (const uint8_t *)data;
@@ -68,10 +75,14 @@ int tree_parse(const void *data, size_t len, Tree *tree_out) {
     return 0;
 }
 
+// Helper for qsort to ensure consistent tree hashing
 static int compare_tree_entries(const void *a, const void *b) {
     return strcmp(((const TreeEntry *)a)->name, ((const TreeEntry *)b)->name);
 }
 
+// Serialize a Tree struct into binary format for storage.
+// Caller must free(*data_out).
+// Returns 0 on success, -1 on error.
 int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
     size_t max_size = tree->count * 296;
     uint8_t *buffer = malloc(max_size);
@@ -166,6 +177,7 @@ static int write_tree_level(const Index *index, const char *prefix, ObjectID *id
 }
 
 int tree_from_index(ObjectID *id_out) {
-    (void)id_out;
-    return -1;
+    Index index;
+    if (index_load(&index) != 0) return -1;
+    return write_tree_level(&index, "", id_out);
 }
