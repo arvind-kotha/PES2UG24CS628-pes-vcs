@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <openssl/evp.h>
+#include <errno.h>
 
 // ─── PROVIDED ────────────────────────────────────────────────────────────────
 
@@ -94,8 +95,33 @@ int object_exists(const ObjectID *id) {
 //
 // Returns 0 on success, -1 on error.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
-    // TODO: Implement
-    (void)type; (void)data; (void)len; (void)id_out;
+    const char *type_str;
+    switch (type) {
+        case OBJ_BLOB: type_str = "blob"; break;
+        case OBJ_TREE: type_str = "tree"; break;
+        case OBJ_COMMIT: type_str = "commit"; break;
+        default: return -1;
+    }
+
+    char header[64];
+    int header_written = snprintf(header, sizeof(header), "%s %zu", type_str, len);
+    if (header_written < 0 || (size_t)header_written + 1 > sizeof(header)) return -1;
+    size_t header_len = (size_t)header_written + 1; // include '\0'
+
+    size_t object_len = header_len + len;
+    uint8_t *object_data = malloc(object_len);
+    if (!object_data) return -1;
+
+    memcpy(object_data, header, header_len);
+    if (len > 0) memcpy(object_data + header_len, data, len);
+
+    compute_hash(object_data, object_len, id_out);
+    if (object_exists(id_out)) {
+        free(object_data);
+        return 0;
+    }
+
+    free(object_data);
     return -1;
 }
 
