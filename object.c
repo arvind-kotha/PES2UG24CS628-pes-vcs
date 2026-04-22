@@ -213,7 +213,72 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 // The caller is responsible for calling free(*data_out).
 // Returns 0 on success, -1 on error (file not found, corrupt, etc.).
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
-    // TODO: Implement
-    (void)id; (void)type_out; (void)data_out; (void)len_out;
+    char path[1024];
+    object_path(id, path, sizeof(path));
+
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return -1;
+    }
+    long flen = ftell(f);
+    if (flen < 0) {
+        fclose(f);
+        return -1;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return -1;
+    }
+
+    size_t file_len = (size_t)flen;
+    uint8_t *file_data = malloc(file_len > 0 ? file_len : 1);
+    if (!file_data) {
+        fclose(f);
+        return -1;
+    }
+
+    if (file_len > 0 && fread(file_data, 1, file_len, f) != file_len) {
+        free(file_data);
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+
+    ObjectID computed;
+    compute_hash(file_data, file_len, &computed);
+    if (memcmp(computed.hash, id->hash, HASH_SIZE) != 0) {
+        free(file_data);
+        return -1;
+    }
+
+    const uint8_t *null_byte = memchr(file_data, '\0', file_len);
+    if (!null_byte) {
+        free(file_data);
+        return -1;
+    }
+
+    size_t header_len = (size_t)(null_byte - file_data);
+    const uint8_t *space = memchr(file_data, ' ', header_len);
+    if (!space) {
+        free(file_data);
+        return -1;
+    }
+
+    size_t type_len = (size_t)(space - file_data);
+    if (type_len == 4 && memcmp(file_data, "blob", 4) == 0) {
+        *type_out = OBJ_BLOB;
+    } else if (type_len == 4 && memcmp(file_data, "tree", 4) == 0) {
+        *type_out = OBJ_TREE;
+    } else if (type_len == 6 && memcmp(file_data, "commit", 6) == 0) {
+        *type_out = OBJ_COMMIT;
+    } else {
+        free(file_data);
+        return -1;
+    }
+
+    free(file_data);
     return -1;
 }
