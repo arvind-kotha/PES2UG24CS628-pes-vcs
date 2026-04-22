@@ -149,12 +149,20 @@ static int write_tree_level(const Index *index, const char *prefix, ObjectID *id
 
         ObjectID child_id;
         if (write_tree_level(index, child_prefix, &child_id) != 0) return -1;
-        (void)child_id;
+
+        TreeEntry *entry = &tree.entries[tree.count++];
+        entry->mode = MODE_DIR;
+        entry->hash = child_id;
+        snprintf(entry->name, sizeof(entry->name), "%s", dirname);
     }
 
-    (void)tree;
-    (void)id_out;
-    return -1;
+    void *serialized = NULL;
+    size_t serialized_len = 0;
+    if (tree_serialize(&tree, &serialized, &serialized_len) != 0) return -1;
+
+    int rc = object_write(OBJ_TREE, serialized, serialized_len, id_out);
+    free(serialized);
+    return rc;
 }
 
 int tree_from_index(ObjectID *id_out) {
