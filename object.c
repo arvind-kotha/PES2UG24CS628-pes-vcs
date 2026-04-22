@@ -279,6 +279,31 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
         return -1;
     }
 
+    const char *size_str = (const char *)(space + 1);
+    char *endptr = NULL;
+    unsigned long long declared_size = strtoull(size_str, &endptr, 10);
+    if (endptr == size_str || (size_t)(endptr - (const char *)file_data) != header_len) {
+        free(file_data);
+        return -1;
+    }
+
+    size_t payload_len = file_len - (header_len + 1);
+    if (declared_size != payload_len) {
+        free(file_data);
+        return -1;
+    }
+
+    uint8_t *payload = malloc(payload_len + 1);
+    if (!payload) {
+        free(file_data);
+        return -1;
+    }
+    if (payload_len > 0) memcpy(payload, null_byte + 1, payload_len);
+    payload[payload_len] = '\0';
+
+    *data_out = payload;
+    *len_out = payload_len;
+
     free(file_data);
-    return -1;
+    return 0;
 }
