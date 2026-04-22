@@ -200,5 +200,7 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
 
     if (!message || !commit_id_out) return -1;
 
+    memset(&commit, 0, sizeof(commit));
+
     return -1;
 }
