@@ -1,19 +1,4 @@
 // index.c - Staging area implementation
-//
-// Text format of .pes/index (one entry per line, sorted by path):
-//
-//   <mode-octal> <64-char-hex-hash> <mtime-seconds> <size> <path>
-//
-// Example:
-//   100644 a1b2c3d4e5f6...  1699900000 42 README.md
-//   100644 f7e8d9c0b1a2...  1699900100 128 src/main.c
-//
-// This is intentionally a simple text format. No magic numbers, no
-// binary parsing. The focus is on the staging area CONCEPT (tracking
-// what will go into the next commit) and ATOMIC WRITES (temp+rename).
-//
-// PROVIDED functions: index_find, index_remove, index_status
-// TODO functions:     index_load, index_save, index_add
 
 #include "index.h"
 #include <stdio.h>
@@ -34,8 +19,6 @@ static int compare_index_entries(const void *a, const void *b) {
     const IndexEntry *eb = (const IndexEntry *)b;
     return strcmp(ea->path, eb->path);
 }
-
-// PROVIDED
 
 // Find an index entry by path (linear scan).
 IndexEntry* index_find(Index *index, const char *path) {
@@ -63,7 +46,6 @@ int index_remove(Index *index, const char *path) {
     return -1;
 }
 
-// Print the status of the working directory.
 int index_status(const Index *index) {
     printf("Staged changes:\n");
     int staged_count = 0;
@@ -127,11 +109,49 @@ int index_status(const Index *index) {
     return 0;
 }
 
-// TODO
-
 int index_load(Index *index) {
-    (void)index;
-    return -1;
+    index->count = 0;
+
+    FILE *f = fopen(INDEX_FILE, "r");
+    if (!f) {
+        if (errno == ENOENT) return 0;
+        return -1;
+    }
+
+    char line[2048];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0] == '\0') continue;
+
+        if (index->count >= MAX_INDEX_ENTRIES) {
+            fclose(f);
+            return -1;
+        }
+
+        IndexEntry *e = &index->entries[index->count];
+        char hex[HASH_HEX_SIZE + 1];
+        unsigned long long mtime;
+        unsigned int size;
+        unsigned int mode;
+        int parsed = sscanf(line, "%o %64s %llu %u %511[^\n]", &mode, hex, &mtime, &size, e->path);
+        if (parsed != 5) {
+            fclose(f);
+            return -1;
+        }
+
+        if (hex_to_hash(hex, &e->hash) != 0) {
+            fclose(f);
+            return -1;
+        }
+
+        e->mode = mode;
+        e->mtime_sec = (uint64_t)mtime;
+        e->size = (uint32_t)size;
+        index->count++;
+    }
+
+    fclose(f);
+    return 0;
 }
 
 int index_save(const Index *index) {
