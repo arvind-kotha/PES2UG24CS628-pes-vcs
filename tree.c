@@ -101,6 +101,15 @@ static int path_has_prefix(const char *path, const char *prefix) {
     return strncmp(path, prefix, n) == 0;
 }
 
+static int tree_has_entry_name(const Tree *tree, const char *name) {
+    for (int i = 0; i < tree->count; i++) {
+        if (strcmp(tree->entries[i].name, name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int write_tree_level(const Index *index, const char *prefix, ObjectID *id_out) {
     Tree tree;
     tree.count = 0;
@@ -112,6 +121,35 @@ static int write_tree_level(const Index *index, const char *prefix, ObjectID *id
 
         const char *rest = full_path + prefix_len;
         if (*rest == '\0') continue;
+
+        const char *slash = strchr(rest, '/');
+        if (!slash) {
+            if (tree.count >= MAX_TREE_ENTRIES) return -1;
+            TreeEntry *entry = &tree.entries[tree.count++];
+            entry->mode = index->entries[i].mode;
+            entry->hash = index->entries[i].hash;
+            snprintf(entry->name, sizeof(entry->name), "%s", rest);
+            continue;
+        }
+
+        size_t dir_len = (size_t)(slash - rest);
+        if (dir_len == 0 || dir_len >= sizeof(tree.entries[0].name)) return -1;
+
+        char dirname[256];
+        memcpy(dirname, rest, dir_len);
+        dirname[dir_len] = '\0';
+
+        if (tree_has_entry_name(&tree, dirname)) continue;
+        if (tree.count >= MAX_TREE_ENTRIES) return -1;
+
+        char child_prefix[512];
+        if (snprintf(child_prefix, sizeof(child_prefix), "%s%s/", prefix, dirname) >= (int)sizeof(child_prefix)) {
+            return -1;
+        }
+
+        ObjectID child_id;
+        if (write_tree_level(index, child_prefix, &child_id) != 0) return -1;
+        (void)child_id;
     }
 
     (void)tree;
